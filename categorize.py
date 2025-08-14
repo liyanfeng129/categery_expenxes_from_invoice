@@ -1,7 +1,8 @@
 
-from turtle import pd
-
+import pandas as pd
+import CompanyCache
 import json
+import os
 from openai import OpenAI
 
 client = OpenAI(api_key="sk-eb4783b9dade435585d47bfc0945cc92", base_url="https://api.deepseek.com")
@@ -15,13 +16,11 @@ def process_batch(batch):
         2. Ragione sociale
         3. Descrizione
 
+        
         Il tuo compito è restituire esclusivamente una delle categorie definite qui sotto,
         seguendo le regole speciali e utilizzando sia ragione sociale sia descrizione per dedurre la categoria.
 
-        L'output deve essere SOLO un array JSON di oggetti, uno per riga, con:
-        {"index": X, "categoria": "..."}
-
-
+       
         Food – Prodotti alimentari per cucina e ristorazione, freschi o confezionati.
         Beverage – Bevande alcoliche (vino, birra, liquori) e analcoliche (acqua, succhi, bibite).
         Altre Forniture – Materiale di consumo vario (cancelleria, detergenti, accessori).
@@ -55,19 +54,20 @@ def process_batch(batch):
 
 
         Esempi:
-        1. Ragione sociale: S.I.A.E. | Descrizione: MUSICA D'AMBIENTE - Diritti connessi → Spese Amministrative
-        2. Ragione sociale: ENEGAN S.P.A. | Descrizione: Canone fibra ottica e traffico telefonico → Telefono
-        3. Ragione sociale: DISINFECTA SPA | Descrizione: Contratto annuale di disinfestazione → Manutenzione Generica
-        4. Ragione sociale: CAMMISCIA SRL | Descrizione: Drogheria → Food
-        5. Ragione sociale: MALINVERNI PAOLO ENRICO | Descrizione: Realizzazione sottobicchieri in cartone pressato con logo → Marketing
-        6. Ragione sociale: LR SERRATURE S.N.C. | Descrizione: Sostituzione chiudiporta Cisa con fermo a giorno → Manutenzione Generica
-        7. Ragione sociale: Flawless Living s.r.l. | Descrizione: Partnership FLAWLESS.life → Marketing
+        1. Ragione sociale: MALINVERNI PAOLO ENRICO | Descrizione: Realizzazione sottobicchieri in cartone pressato con logo → Marketing
+        2. Ragione sociale: LR SERRATURE S.N.C. | Descrizione: Sostituzione chiudiporta Cisa con fermo a giorno → Manutenzione Generica
+        3. Ragione sociale: Flawless Living s.r.l. | Descrizione: Partnership FLAWLESS.life → Marketing
 
-        Rispondi sempre e solo con un array JSON valido e nessun testo extra.
+        L'output deve essere SOLO un array JSON di oggetti, uno per riga, esempio:
+            {'response': [
+                {'index': 2543, 'categoria': 'Carburante'},
+                {'index': 5580, 'categoria': 'Food'},
+                {'index': 2885, 'categoria': 'Food'}
+            ]}
         """
 
     user_prompt = "\n".join(
-        f"{row['index']}. {row['ragione_sociale']} | {row['descrizione']}"
+        f"{row['index']}. Ragione sociale: {row['ragione_sociale']} | Descrizione: {row['descrizione']}"
         for row in batch
     )
     
@@ -80,28 +80,150 @@ def process_batch(batch):
         response_format={"type": "json_object"},
         temperature=0.3  # Less randomness for consistent categories
     )
-    return json.loads(response.choices[0].message.content)
-
+    # Strict JSON parsing with validation
+    response_content = response.choices[0].message.content
+    result = json.loads(response_content)
+    
+    # Validate JSON structure
+    if not isinstance(result, dict):
+        raise ValueError("Top-level response is not a JSON object")
+    
+    # Check for response data in common key locations
+    response_data = None
+    for key in ['response', 'data', 'output', 'results']:
+        if key in result and isinstance(result[key], list):
+            response_data = result[key]
+            break
+    if response_data is None:
+         # If no standard key found, check if the object itself is the response
+        if all(isinstance(item, dict) and 'index' in item and 'categoria' in item 
+            for item in result.values() if isinstance(item, dict)):
+                response_data = list(result.values())
+        else:
+            raise ValueError("Could not locate valid response data in JSON")
+    # Validate each item in response
+    validated_items = []
+    for item in response_data:
+        if not isinstance(item, dict):
+            continue
+        if 'index' not in item or 'categoria' not in item:
+            continue
+        validated_items.append({
+                'index': int(item['index']),
+                'categoria': str(item['categoria'])
+            })
+            
+    if not validated_items:
+        raise ValueError("No valid items found in response")
+        print("response data:"+response_data)
+            
+    return {'response': validated_items}
 
 def data_preprocessing(fatture):
-    raise NotImplementedError
+    """
+    Preprocess the invoice data by adding an index column.
+    """
+    processed_fatture = fatture.copy() # Create a copy for processing
+    processed_fatture.insert(0, 'Index', range(1, len(processed_fatture) + 1)) # Start from 1
+    return processed_fatture
 
-def categorize_invoices(processed_fatture, fornitori, info=None):
+def categorize_invoices(processed_fatture, fornitori, company_cache):
     """
     Categorize invoices based on supplier data.
     
     Parameters:
     - processed_fatture: DataFrame containing preprocessed invoice data
+        -- has these colunm:
+                            Index
+                            SourceName  
+                            CODICE_COMMITTENTE  
+                            ALIQUOTA_IVA       
+                            DATA       
+                            P_IVA 
+                            UNITAMISURA  
+                            IMPORTO_TOTALE_DOCUMENTO
+                            NUMERO TIPO_DOCUMENTO                                
+                            RAGIONE_SOCIALE 
+                            SEDE_INDIRIZZO_CESSIONARIO  
+                            QUANTITA                    
+                            DESCRIZIONE  
+                            IMPONIBILE_IMPORTO  
+                            PREZZO_UNITARIO
     - fornitori: DataFrame containing supplier data
-    - info: Additional information for categorization (optional)
+    - company_cache: string
     
     Returns:
     - categorized_fatture: DataFrame with categorized invoices
     """
-    raise NotImplementedError
+    company_cache = CompanyCache(company_cache)
+    batch_size = 20  # Adjust batch size as needed
+    batch = []
+    batch_count = 0
+    categorized_fatture = processed_fatture.copy()
+    categorized_fatture['CATEGORIA'] = 'No categorizzato'  # Default value
+    cache_hit = 0  # Counter for cache hits
+    for _, row in processed_fatture.iterrows():
+        index = row['Index']
+        ragione_sociale = row['RAGIONE_SOCIALE']
+        descrizione = row['DESCRIZIONE']
+        
+        # Check cache first
+        if company_cache.has_category(ragione_sociale, descrizione):
+            categorized_fatture.loc[categorized_fatture['Index'] == index, 'CATEGORIA'] = company_cache.get_category(ragione_sociale, descrizione)
+            cache_hit += 1
+        else:
+            # If not cached, categorize using the model
+            item = {"index": index, "ragione_sociale": ragione_sociale, "descrizione": descrizione}
+            batch.append(item)
+        if len(batch) == batch_size:
+            # Process the batch, call deepseek API to categorize bach_size items, 
+            # result will be a list of dictionaries with 'index' and 'categoria'
+            batch_count += 1
+            results = process_batch(batch) 
+
+            print(f"batch {batch_count} processed, content:") 
+            print(results.to_string(index=False))  
+
+            for result in results['response']:
+                index = result.get('index', 'N/A')
+                categoria =  result.get('categoria', 'N/A')
+                ragione_sociale = next(
+                    (item['ragione_sociale'] for item in batch if item['index'] == index), None)
+
+                descrizione = next(
+                    (item['descrizione'] for item in batch if item['index'] == index), None)
+                
+                # Update cache and DataFrame
+                company_cache.set_category(ragione_sociale, descrizione, categoria)
+                categorized_fatture.loc[categorized_fatture['Index'] == index, 'CATEGORIA'] = categoria
+            
+            batch = []
+
+    
+    # Process any remaining items in the last batch
+    if batch:
+        results = process_batch(batch)
+        print(f"batch {batch_count} processed, content:") 
+        print(results.to_string(index=False))  
+        for result in results['response']:
+            index = result.get('index', 'N/A')
+            categoria = result.get('categoria', 'N/A')
+            ragione_sociale = next(
+                (item['ragione_sociale'] for item in batch if item['index'] == index), None)
+
+            descrizione = next(
+                (item['descrizione'] for item in batch if item['index'] == index), None)
+            
+            # Update cache and DataFrame
+            company_cache.set_category(ragione_sociale, descrizione, categoria)
+            categorized_fatture.loc[categorized_fatture['Index'] == index, 'CATEGORIA'] = categoria
+    # Save the cache to file
+    company_cache.save_cache()
+    print(f"Cache hits: {cache_hit} out of {len(processed_fatture)} total items")
+    return categorized_fatture        
 
 
-def main(fatture, fornitori, info=None):
+def main(fatture, fornitori, company_cache):
     """
     Main function to categorize invoices based on supplier data.
     
@@ -113,7 +235,7 @@ def main(fatture, fornitori, info=None):
     - fatture: DataFrame with categorized invoices
     """
     processed_fatture = data_preprocessing(fatture)
-    result = categorize_invoices(processed_fatture, fornitori, info)
+    result = categorize_invoices(processed_fatture, fornitori, company_cache)
 
     return result
 
