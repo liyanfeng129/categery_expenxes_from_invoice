@@ -1,8 +1,8 @@
 
+import argparse
 import pandas as pd
-import CompanyCache
+from CompanyCache import CompanyCache
 import json
-import os
 from openai import OpenAI
 
 client = OpenAI(api_key="sk-eb4783b9dade435585d47bfc0945cc92", base_url="https://api.deepseek.com")
@@ -125,9 +125,10 @@ def data_preprocessing(fatture):
     """
     processed_fatture = fatture.copy() # Create a copy for processing
     processed_fatture.insert(0, 'Index', range(1, len(processed_fatture) + 1)) # Start from 1
+    print("Data preprocessed")
     return processed_fatture
 
-def categorize_invoices(processed_fatture, fornitori, company_cache):
+def categorize_invoices(processed_fatture, company_cache):
     """
     Categorize invoices based on supplier data.
     
@@ -182,7 +183,7 @@ def categorize_invoices(processed_fatture, fornitori, company_cache):
             results = process_batch(batch) 
 
             print(f"batch {batch_count} processed, content:") 
-            print(results.to_string(index=False))  
+            
 
             for result in results['response']:
                 index = result.get('index', 'N/A')
@@ -204,7 +205,7 @@ def categorize_invoices(processed_fatture, fornitori, company_cache):
     if batch:
         results = process_batch(batch)
         print(f"batch {batch_count} processed, content:") 
-        print(results.to_string(index=False))  
+       
         for result in results['response']:
             index = result.get('index', 'N/A')
             categoria = result.get('categoria', 'N/A')
@@ -223,19 +224,23 @@ def categorize_invoices(processed_fatture, fornitori, company_cache):
     return categorized_fatture        
 
 
-def main(fatture, fornitori, company_cache):
-    """
-    Main function to categorize invoices based on supplier data.
-    
-    Parameters:
-    - fatture: DataFrame containing invoice data
-    - fornitori: DataFrame containing supplier data
-    
-    Returns:
-    - fatture: DataFrame with categorized invoices
-    """
-    processed_fatture = data_preprocessing(fatture)
-    result = categorize_invoices(processed_fatture, fornitori, company_cache)
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Categorize invoices based on supplier data.")
+    parser.add_argument("input_csv", help="Path to input CSV containing invoices")
+    parser.add_argument("cache_json", help="Path to JSON cache with supplier data")
+    parser.add_argument("output_csv", help="Path to save categorized invoices CSV")
+    args = parser.parse_args()
 
-    return result
+    # Load input data
+    df = pd.read_csv(args.input_csv)
+
+    # Process invoices
+    processed_fatture = data_preprocessing(df)
+    result = categorize_invoices(processed_fatture, args.cache_json)
+
+    # Show preview
+    print(result.head())
+
+    # Save results
+    result.to_csv(args.output_csv, index=False, encoding="utf-8-sig")
 

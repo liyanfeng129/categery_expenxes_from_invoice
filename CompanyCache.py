@@ -48,9 +48,13 @@ class CompanyCache:
         if description in self.cache[company]:
             return True
         
-        # Check for similar descriptions (80% similarity)
-        similar_desc = self._find_similar_description(company, description)
-        return similar_desc is not None
+       # Check for similar descriptions (80% similarity)
+        if company in self.cache and self.cache[company]: #company exist and has no empty descriptions
+            cached_descriptions = self.cache[company].keys()
+            similar_desc = self._find_similar_description(description, cached_descriptions)
+            return similar_desc is not None
+        
+        return False
         
     def _find_similar_description(self, description, description_set, threshold=0.8):
         """Find a similar description in the given set of descriptions"""
