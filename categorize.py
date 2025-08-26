@@ -4,6 +4,7 @@ import pandas as pd
 from CompanyCache import CompanyCache
 import json
 from openai import OpenAI
+from DataProcessor import DataProcessor
 
 client = OpenAI(api_key="sk-eb4783b9dade435585d47bfc0945cc92", base_url="https://api.deepseek.com")
 
@@ -122,13 +123,9 @@ def process_batch(batch):
 
 
 def data_preprocessing(fatture):
-    """
-    Preprocess the invoice data by adding an index column.
-    """
-    processed_fatture = fatture.copy() # Create a copy for processing
-    processed_fatture.insert(0, 'Index', range(1, len(processed_fatture) + 1)) # Start from 1
-    print("Data preprocessed")
-    return processed_fatture
+   clustered_data = DataProcessor.sequential_cluster(fatture, threshold=0.8)
+   
+   return clustered_data
 
 def categorize_invoices(processed_fatture, company_cache):
     """
