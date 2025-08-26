@@ -119,6 +119,8 @@ def process_batch(batch):
             
     return {'response': validated_items}
 
+
+
 def data_preprocessing(fatture):
     """
     Preprocess the invoice data by adding an index column.

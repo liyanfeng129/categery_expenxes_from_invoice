@@ -2,6 +2,8 @@ from difflib import SequenceMatcher
 import json
 from collections import defaultdict
 import os
+import re
+
 class CompanyCache:
     def __init__(self, cache_file='company_cache.json'):
         """Initialize category cache with optional file persistence"""
@@ -59,8 +61,16 @@ class CompanyCache:
     def _find_similar_description(self, description, description_set, threshold=0.8):
         """Find a similar description in the given set of descriptions"""
         for cached_desc in description_set:
-            similarity = SequenceMatcher(None, description.lower(), cached_desc.lower()).ratio()
+            similarity = SequenceMatcher(None, self._clean_text(description), self._clean_text(cached_desc)).ratio()
             if similarity >= threshold:
                 return cached_desc
         return None
+    def _clean_text(text):
+        # Lowercase
+        text = text.lower()
+        # Remove numbers and special chars, keep letters and spaces
+        text = re.sub(r'[^a-z\s]', ' ', text)
+        # Collapse multiple spaces
+        text = re.sub(r'\s+', ' ', text).strip()
+        return text
     
