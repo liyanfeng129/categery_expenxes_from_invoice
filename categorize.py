@@ -234,12 +234,30 @@ if __name__ == "__main__":
     df = pd.read_csv(args.input_csv)
 
     # Process invoices
-    processed_fatture = data_preprocessing(df)
-    result = categorize_invoices(processed_fatture, args.cache_json)
+    clustered_fatture = DataProcessor.sequential_cluster(df, threshold=0.8)
+    reduced_row = DataProcessor.representatives(clustered_fatture)
+
+    reduced_row_categ = categorize_invoices(reduced_row, args.cache_json)
+
+     # Step 1: propagate categories to clustered_fatture
+    clustered_with_cat = clustered_fatture.drop(
+        columns=["CATEGORIA"], errors='ignore'
+        ).merge(
+        reduced_row_categ[["RAGIONE_SOCIALE", "cluster", "CATEGORIA"]],
+        on=["RAGIONE_SOCIALE", "cluster"],
+        how="left"
+                )
+    # Step 2: use (RAGIONE_SOCIALE, DESCRIZIONE) to bring CATEGORIA back to original df
+    df_with_cat = df.merge(
+        clustered_with_cat[["RAGIONE_SOCIALE", "DESCRIZIONE", "CATEGORIA"]],
+        on=["RAGIONE_SOCIALE", "DESCRIZIONE"],
+        how="left"
+    )    
 
     # Show preview
-    print(result.head())
+    print(df_with_cat.info())
+    print(df_with_cat.head())
 
     # Save results
-    result.to_csv(args.output_csv, index=False, encoding="utf-8-sig")
+    df_with_cat.to_csv(args.output_csv, index=False, encoding="utf-8-sig")
 

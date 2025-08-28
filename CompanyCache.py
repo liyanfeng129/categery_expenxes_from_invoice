@@ -38,7 +38,9 @@ class CompanyCache:
     
     def get_category(self, company, description):
         """Get cached category for company-description pair"""
-        return self.cache[company].get(description)
+        if company in self.cache and description in self.cache[company]:
+            return self.cache[company][description]
+        return None
     
     def set_category(self, company, description, category):
         """Cache category for company-description pair"""
@@ -46,12 +48,16 @@ class CompanyCache:
     
     def has_category(self, company, description):
         """Check if category is cached for company-description pair or similar description exists"""
+        # Check if company exists in cache first
+        if company not in self.cache:
+            return False
+        
         # Check for exact match first
         if description in self.cache[company]:
             return True
         
-       # Check for similar descriptions (80% similarity)
-        if company in self.cache and self.cache[company]: #company exist and has no empty descriptions
+        # Check for similar descriptions (80% similarity)
+        if self.cache[company]:  # company exists and has descriptions
             cached_descriptions = self.cache[company].keys()
             similar_desc = self._find_similar_description(description, cached_descriptions)
             return similar_desc is not None
@@ -65,12 +71,10 @@ class CompanyCache:
             if similarity >= threshold:
                 return cached_desc
         return None
-    def _clean_text(text):
-        # Lowercase
+    
+    def _clean_text(self, text):
         text = text.lower()
-        # Remove numbers and special chars, keep letters and spaces
         text = re.sub(r'[^a-z\s]', ' ', text)
-        # Collapse multiple spaces
         text = re.sub(r'\s+', ' ', text).strip()
         return text
     
