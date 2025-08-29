@@ -5,6 +5,8 @@ from CompanyCache import CompanyCache
 import json
 from openai import OpenAI
 from DataProcessor import DataProcessor
+import threading
+import numpy as np
 
 client = OpenAI(api_key="sk-eb4783b9dade435585d47bfc0945cc92", base_url="https://api.deepseek.com")
 
@@ -13,7 +15,7 @@ def process_batch(batch):
     SYSTEM_PROMPT = """
         Sei un assistente specializzato nella classificazione di spese aziendali.
         Ricevi in input un batch di righe, ognuna con:
-        1. Index (numero identificativo)
+        1. id (un identificativo univoco per ogni riga)
         2. Ragione sociale
         3. Descrizione
 
@@ -59,18 +61,22 @@ def process_batch(batch):
         2. Ragione sociale: LR SERRATURE S.N.C. | Descrizione: Sostituzione chiudiporta Cisa con fermo a giorno → Manutenzione Generica
         3. Ragione sociale: Flawless Living s.r.l. | Descrizione: Partnership FLAWLESS.life → Marketing
 
-        L'output deve essere SOLO un array JSON di oggetti, uno per riga, esempio:
+        Il tuo output deve essere **solo un array JSON di oggetti**, uno per riga, con i campi:
+        - "id"
+        - "CATEGORIA"
+        
+        Esempio:
             {'response': [
-                {'index': 2543, 'categoria': 'Carburante'},
-                {'index': 5580, 'categoria': 'Food'},
-                {'index': 2885, 'categoria': 'Food'}
+                {'id': 1, 'CATEGORIA': 'Carburante'},
+                {'id': 35, 'CATEGORIA': 'Food'},
+                {'id': 78, 'CATEGORIA': 'Food'}
             ]}
         """
 
     user_prompt = "\n".join(
-        f"{row['index']}. Ragione sociale: {row['ragione_sociale']} | Descrizione: {row['descrizione']}"
-        for row in batch
-    )
+    f"id {id} | Ragione sociale: {row['RAGIONE_SOCIALE']} | Descrizione: {row['DESCRIZIONE']}"
+    for id, row in batch.iterrows()
+)
     
     response = client.chat.completions.create(
         model="deepseek-chat",
@@ -81,45 +87,87 @@ def process_batch(batch):
         response_format={"type": "json_object"},
         temperature=0.3  # Less randomness for consistent categories
     )
-    # Strict JSON parsing with validation
+    
     response_content = response.choices[0].message.content
     result = json.loads(response_content)
     
-    # Validate JSON structure
+    # Validate top-level JSON object
     if not isinstance(result, dict):
         raise ValueError("Top-level response is not a JSON object")
     
-    # Check for response data in common key locations
+    # Try common keys for response data
     response_data = None
     for key in ['response', 'data', 'output', 'results']:
         if key in result and isinstance(result[key], list):
             response_data = result[key]
             break
+    
     if response_data is None:
-         # If no standard key found, check if the object itself is the response
-        if all(isinstance(item, dict) and 'index' in item and 'categoria' in item 
-            for item in result.values() if isinstance(item, dict)):
-                response_data = list(result.values())
+        # Fallback: check if the object itself is a list of dicts with the required keys
+        if isinstance(result, list) and all(
+            isinstance(item, dict) and 
+            'id' in item and 
+            'CATEGORIA' in item
+            for item in result
+        ):
+            response_data = result
         else:
             raise ValueError("Could not locate valid response data in JSON")
+    
     # Validate each item in response
     validated_items = []
     for item in response_data:
         if not isinstance(item, dict):
             continue
-        if 'index' not in item or 'categoria' not in item:
+        if 'id' not in item or 'CATEGORIA' not in item:
             continue
         validated_items.append({
-                'index': int(item['index']),
-                'categoria': str(item['categoria'])
-            })
-            
+            'id': int(item['id']),
+            'CATEGORIA': str(item['CATEGORIA'])
+        })
+    
     if not validated_items:
         raise ValueError("No valid items found in response")
-        print("response data:"+response_data)
-            
-    return {'response': validated_items}
 
+    for item in validated_items:
+        batch.loc[item['id'], 'CATEGORIA'] = item['CATEGORIA']
+
+    return batch
+
+def process_batches_in_parallel(batches, process_batch):
+    """
+    Process all batches in parallel using threads.
+
+    Args:
+        batches (list[pd.DataFrame]): list of batches (DataFrames).
+        process_batch (callable): function that takes a batch (DataFrame) 
+                                 and returns the updated batch (with categories).
+
+    Returns:
+        pd.DataFrame: concatenated DataFrame of all processed batches.
+    """
+    results = {}
+    threads = []
+    def worker(batch, idx):
+        updated = process_batch(batch)  # call LLM or custom function
+        results[idx] = updated
+
+    # Create and start threads
+    for idx, batch in enumerate(batches):
+        t = threading.Thread(target=worker, args=(batch, idx))
+        t.start()
+        threads.append(t)
+    
+    # Wait for all threads to finish
+    for t in threads:
+        t.join()    
+
+     # Combine results in original order
+
+    assert results, "empty results after processing"
+    all_processed = pd.concat([results[i] for i in sorted(results.keys())], ignore_index=True)
+
+    return all_processed
 
 
 def data_preprocessing(fatture):
@@ -133,8 +181,8 @@ def categorize_invoices(processed_fatture, company_cache):
     
     Parameters:
     - processed_fatture: DataFrame containing preprocessed invoice data
+        it is repetition free
         -- has these colunm:
-                            Index
                             SourceName  
                             CODICE_COMMITTENTE  
                             ALIQUOTA_IVA       
@@ -149,7 +197,7 @@ def categorize_invoices(processed_fatture, company_cache):
                             DESCRIZIONE  
                             IMPONIBILE_IMPORTO  
                             PREZZO_UNITARIO
-    - fornitori: DataFrame containing supplier data
+                            cluster
     - company_cache: string
     
     Returns:
@@ -157,70 +205,60 @@ def categorize_invoices(processed_fatture, company_cache):
     """
     company_cache = CompanyCache(company_cache)
     batch_size = 20  # Adjust batch size as needed
-    batch = []
-    batch_count = 0
     categorized_fatture = processed_fatture.copy()
     categorized_fatture['CATEGORIA'] = 'No categorizzato'  # Default value
     cache_hit = 0  # Counter for cache hits
-    for _, row in processed_fatture.iterrows():
-        index = row['Index']
-        ragione_sociale = row['RAGIONE_SOCIALE']
+    for _, row in categorized_fatture.iterrows():
+        cluster = row['cluster']
+        piva = row['P_IVA']
         descrizione = row['DESCRIZIONE']
         
         # Check cache first
-        if company_cache.has_category(ragione_sociale, descrizione):
-            categorized_fatture.loc[categorized_fatture['Index'] == index, 'CATEGORIA'] = company_cache.get_category(ragione_sociale, descrizione)
+        if company_cache.has_category(piva, descrizione):
+            categorized_fatture.loc[(categorized_fatture['cluster'] == cluster) & 
+                                     (categorized_fatture['P_IVA'] == piva) & 
+                                     (categorized_fatture['DESCRIZIONE'] == descrizione),
+                                       'CATEGORIA'] = company_cache.get_category(piva, descrizione)
             cache_hit += 1
-        else:
-            # If not cached, categorize using the model
-            item = {"index": index, "ragione_sociale": ragione_sociale, "descrizione": descrizione}
-            batch.append(item)
-        if len(batch) == batch_size:
-            # Process the batch, call deepseek API to categorize bach_size items, 
-            # result will be a list of dictionaries with 'index' and 'categoria'
-            batch_count += 1
-            results = process_batch(batch) 
+    print(f"Cache hits so far: {cache_hit}")
+    not_categorized = categorized_fatture[categorized_fatture["CATEGORIA"] == 'No categorizzato' ]
 
-            print(f"batch {batch_count} processed, content:") 
-            
+    if len(not_categorized) > 0:
+        print(f"Not categorized items: {not_categorized.shape[0]}")
+        batches = DataProcessor.split_into_batches(not_categorized, batch_size=batch_size)
+        print(f"Total batches to process: {len(batches)}")
 
-            for result in results['response']:
-                index = result.get('index', 'N/A')
-                categoria =  result.get('categoria', 'N/A')
-                ragione_sociale = next(
-                    (item['ragione_sociale'] for item in batch if item['index'] == index), None)
+        # Process batches in parallel
+        all_processed = process_batches_in_parallel(batches, process_batch)
+        print("all_processed columns:", all_processed.columns.tolist())
+        # Save categories to cache
+        for _, row in all_processed.iterrows():
+            piva = row['P_IVA']
+            descrizione = row['DESCRIZIONE']
+            categoria = row['CATEGORIA']
+            company_cache.set_category(piva, descrizione, categoria)
+        company_cache.save_cache()    
+        # Merge categories based on company + cluster
+        # now categorized_fatture has temporary colunm Categoria_new
+        categorized_fatture = categorized_fatture.merge(
+        all_processed[["P_IVA", "cluster", "CATEGORIA"]],
+        on=["P_IVA", "cluster"],
+        how="left",
+        suffixes=('', '_new')  # to avoid overwriting existing column yet
+    )
+        print("Merged columns:", categorized_fatture.columns.tolist())
+        # If CATEGORIA_new is not NaN → use it
+        # Else → keep old CATEGORIA (which is guaranteed to not be "No categorizzato")
+        categorized_fatture['CATEGORIA'] = np.where(
+        categorized_fatture['CATEGORIA_new'].notna(),
+        categorized_fatture['CATEGORIA_new'],
+        categorized_fatture['CATEGORIA']
+    )
 
-                descrizione = next(
-                    (item['descrizione'] for item in batch if item['index'] == index), None)
-                
-                # Update cache and DataFrame
-                company_cache.set_category(ragione_sociale, descrizione, categoria)
-                categorized_fatture.loc[categorized_fatture['Index'] == index, 'CATEGORIA'] = categoria
-            
-            batch = []
+        # Drop temporary column
+        categorized_fatture.drop(columns=['CATEGORIA_new'], inplace=True)
 
-    
-    # Process any remaining items in the last batch
-    if batch:
-        results = process_batch(batch)
-        print(f"batch {batch_count} processed, content:") 
-       
-        for result in results['response']:
-            index = result.get('index', 'N/A')
-            categoria = result.get('categoria', 'N/A')
-            ragione_sociale = next(
-                (item['ragione_sociale'] for item in batch if item['index'] == index), None)
-
-            descrizione = next(
-                (item['descrizione'] for item in batch if item['index'] == index), None)
-            
-            # Update cache and DataFrame
-            company_cache.set_category(ragione_sociale, descrizione, categoria)
-            categorized_fatture.loc[categorized_fatture['Index'] == index, 'CATEGORIA'] = categoria
-    # Save the cache to file
-    company_cache.save_cache()
-    print(f"Cache hits: {cache_hit} out of {len(processed_fatture)} total items")
-    return categorized_fatture        
+    return categorized_fatture  
 
 
 if __name__ == "__main__":
@@ -232,32 +270,26 @@ if __name__ == "__main__":
 
     # Load input data
     df = pd.read_csv(args.input_csv)
-
+    print("input shape is", df.shape)
     # Process invoices
     clustered_fatture = DataProcessor.sequential_cluster(df, threshold=0.8)
     reduced_row = DataProcessor.representatives(clustered_fatture)
-
+    print("reduced_input is", reduced_row.shape)
     reduced_row_categ = categorize_invoices(reduced_row, args.cache_json)
-
-     # Step 1: propagate categories to clustered_fatture
+    print("reduced_row_categ columns:", reduced_row_categ.columns.tolist())
+     # propagate categories to clustered_fatture
     clustered_with_cat = clustered_fatture.drop(
         columns=["CATEGORIA"], errors='ignore'
         ).merge(
-        reduced_row_categ[["RAGIONE_SOCIALE", "cluster", "CATEGORIA"]],
-        on=["RAGIONE_SOCIALE", "cluster"],
+        reduced_row_categ[["P_IVA", "cluster", "CATEGORIA"]],
+        on=["P_IVA", "cluster"],
         how="left"
                 )
-    # Step 2: use (RAGIONE_SOCIALE, DESCRIZIONE) to bring CATEGORIA back to original df
-    df_with_cat = df.merge(
-        clustered_with_cat[["RAGIONE_SOCIALE", "DESCRIZIONE", "CATEGORIA"]],
-        on=["RAGIONE_SOCIALE", "DESCRIZIONE"],
-        how="left"
-    )    
-
-    # Show preview
-    print(df_with_cat.info())
-    print(df_with_cat.head())
+    
+    clustered_with_cat = clustered_with_cat.drop(columns=["cluster"], errors='ignore')
+    print("final df shape:", clustered_with_cat.shape)
+    
 
     # Save results
-    df_with_cat.to_csv(args.output_csv, index=False, encoding="utf-8-sig")
+    clustered_with_cat.to_csv(args.output_csv, index=False, encoding="utf-8-sig")
 
