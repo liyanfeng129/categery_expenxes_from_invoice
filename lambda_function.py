@@ -192,7 +192,18 @@ def process_batch(batch, llm_client: LLMClient) -> pd.DataFrame:
     """
     system_prompt = Config.SYSTEM_PROMPT
     user_prompt = llm_client.create_user_prompt(batch)
-    response = llm_client.get_response(user_prompt, system_prompt)
+    tries = Config.LLM_Tries
+    # LLM could fail intermittently, so we retry a few times
+    while(tries > 0):
+        try:    
+            response = llm_client.get_response(user_prompt, system_prompt)
+            break  # Exit loop if successful
+        except Exception as e:
+            print(f"Error getting response from LLM: {e}")
+            tries -= 1
+            if tries == 0:
+                raise e  # Re-raise exception if out of tries
+    # If we reach here, it means we got a response
     # Update the batch with the response
     for item in response:
         batch.loc[item['id'], 'CATEGORIA'] = item['CATEGORIA']

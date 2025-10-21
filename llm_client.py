@@ -125,7 +125,9 @@ class LLMClient:
             ):
                 response_data = result
             else:
+                print(response_data)
                 raise ValueError("Could not locate valid response data in JSON")
+                
         
         # Validate each item in response
         validated_items = []

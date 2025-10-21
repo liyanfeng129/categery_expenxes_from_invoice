@@ -103,5 +103,6 @@ Esempio:
     
     # Processing Configuration
     BATCH_SIZE = 100
+    LLM_Tries = 3
 
     
