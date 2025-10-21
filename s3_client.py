@@ -41,18 +41,6 @@ class S3_Client:
             return []
 
     
-    
-    def read_csv_to_dataframe(self, bucket: str, key: str) -> pd.DataFrame:
-        """Read a CSV file from S3 directly into a pandas DataFrame."""
-        try:
-            path = f"s3://{bucket}/{key}"
-            df = wr.s3.read_csv(path)
-            print(f"✅ Loaded s3://{bucket}/{key} into DataFrame")
-            return df
-        except (NoCredentialsError, ClientError) as e:
-            print(f"❌ Error reading s3://{bucket}/{key}: {e}")
-            return pd.DataFrame()  # return empty DF if something fails
-   
     def read_parquet_to_dataframe(self, bucket: str, key: str) -> pd.DataFrame:
         """Read a Parquet file from S3 directly into a pandas DataFrame."""
         try:
@@ -64,15 +52,6 @@ class S3_Client:
             print(f"❌ Error reading s3://{bucket}/{key}: {e}")
             return pd.DataFrame()  # return empty DF if something fails       
     
-    def write_df_to_csv(self, df: pd.DataFrame, bucket: str, key: str):
-        """Write a pandas DataFrame to a CSV file in S3."""
-        try:
-            path = f"s3://{bucket}/{key}"
-            wr.s3.to_csv(df, path, index=False, boto3_session=self.session)
-            print(f"✅ Written DataFrame to s3://{bucket}/{key}")
-        except (NoCredentialsError, ClientError) as e:
-            print(f"❌ Error writing DataFrame to s3://{bucket}/{key}: {e}")         
-
     def write_df_to_parquet(self, df: pd.DataFrame, bucket: str, key: str, compression: str = 'snappy', index: bool = False):
         """
         Write a pandas DataFrame to a Parquet file in S3.
@@ -173,44 +152,7 @@ class S3_Client:
             print(f"❌ Unexpected error checking file: {e}")
             return False
     
-    def create_directory(self, bucket: str, full_path: str, name: str):
-        """
-        Create a directory in S3 by creating an empty object with trailing slash.
-        Note: S3 doesn't have true directories, but this creates a folder marker.
-        
-        Args:
-            bucket (str): S3 bucket name
-            full_path (str): Full S3 path where to create the directory
-            name (str): Directory name
-        """
-        try:
-            # Ensure full_path ends with / if not empty
-            if full_path and not full_path.endswith('/'):
-                full_path += '/'
-            
-            # Ensure directory name ends with /
-            if not name.endswith('/'):
-                name += '/'
-            
-            directory_key = f"{full_path}{name}"
-            
-            # Create empty object to represent directory
-            self.s3.put_object(
-                Bucket=bucket,
-                Key=directory_key,
-                Body='',
-                ContentType='application/x-directory'
-            )
-            
-            print(f"✅ Created directory: s3://{bucket}/{directory_key}")
-            return directory_key
-            
-        except ClientError as e:
-            print(f"❌ Error creating directory: {e}")
-            return None
-        except Exception as e:
-            print(f"❌ Unexpected error creating directory: {e}")
-            return None
+    
     
     def create_file(self, bucket: str, full_path: str, name: str, content: str = "", content_type: str = "text/plain"):
         """
