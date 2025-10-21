@@ -1,0 +1,150 @@
+
+import boto3
+from botocore.exceptions import ClientError
+import json
+from typing import Dict, Any, Optional, List
+from openai import OpenAI
+def get_secret(secret_name: str):
+
+    #secret_name = "GPT5_nano_api"
+    region_name = "eu-south-1"
+
+    # Create a Secrets Manager client
+    session = boto3.session.Session()
+    client = session.client(
+        service_name='secretsmanager',
+        region_name=region_name
+    )
+
+    try:
+        get_secret_value_response = client.get_secret_value(
+            SecretId=secret_name
+        )
+    except ClientError as e:
+        # For a list of exceptions thrown, see
+        # https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_GetSecretValue.html
+        raise e
+
+    secret = get_secret_value_response['SecretString']
+    
+    # Parse the JSON secret and extract the API key
+    secret_dict = json.loads(secret)
+    
+    # Extract the API key from the JSON (assuming the key name matches the secret_name)
+    if secret_name in secret_dict:
+        return secret_dict[secret_name]
+    else:
+        # If exact match not found, try to get the first value (common case)
+        return list(secret_dict.values())[0]
+
+class LLMClient:
+    """
+    Client for interacting with Large Language Models (OpenAI GPT).
+    Handles prompt creation, API calls, and response validation.
+    """
+    
+    def __init__(self, secret_name: str):
+        """
+        Initialize the LLM client.
+        
+        Args:
+            config: Configuration object containing API keys and settings
+        """
+        llm_api = get_secret(secret_name)
+        self.client = OpenAI(api_key=llm_api)
+        
+    
+    def create_user_prompt(self, batch) -> str:
+        """
+        Create a user prompt for invoice categorization.
+        
+        Args:
+            batch: DataFrame row containing invoice information
+
+        Returns:
+            Formatted prompt string
+        """
+        user_prompt = "\n".join(
+    f"id {id} | Ragione sociale: {row['RAGIONE_SOCIALE']} | Descrizione: {row['DESCRIZIONE']}"
+    for id, row in batch.iterrows()
+)
+
+        return user_prompt
+
+    def get_response(self, user_prompt: str, 
+                    system_prompt: str):
+        """
+        Get response from the LLM.
+        """
+        response = self.client.chat.completions.create(
+                model="gpt-5-nano",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                response_format={ "type": "json_object" }   # force valid JSON output
+                
+            )
+        validated_response = self.validate_response(response)
+        return validated_response
+        
+
+
+    def validate_response(self, response) -> List[Dict[str, Any]]:
+        """
+        Validate the LLM response format and content.
+        
+        Args:
+            response: Raw response from the LLM
+            
+        Returns:
+            Validated responses as a list of dictionaries
+        Raises:
+            ValueError: If the response format is invalid   
+        """
+        response_content = response.choices[0].message.content
+        result = json.loads(response_content)
+         # Validate top-level JSON object
+        if not isinstance(result, dict):
+         raise ValueError("Top-level response is not a JSON object")
+    
+        # Try common keys for response data
+        response_data = None
+        for key in ['response', 'data', 'output', 'results']:
+            if key in result and isinstance(result[key], list):
+                response_data = result[key]
+                break
+    
+        if response_data is None:
+            # Fallback: check if the object itself is a list of dicts with the required keys
+            if isinstance(result, list) and all(
+                isinstance(item, dict) and 
+                'id' in item and 
+                'CATEGORIA' in item
+                for item in result
+            ):
+                response_data = result
+            else:
+                raise ValueError("Could not locate valid response data in JSON")
+        
+        # Validate each item in response
+        validated_items = []
+        for item in response_data:
+            if not isinstance(item, dict):
+                continue
+            if 'id' not in item or 'CATEGORIA' not in item:
+                continue
+            validated_items.append({
+                'id': int(item['id']),
+                'CATEGORIA': str(item['CATEGORIA'])
+            })
+        
+        if not validated_items:
+            raise ValueError("No valid items found in response")
+        return validated_items
+        
+
+
+if __name__ == "__main__":
+    secret = get_secret("GPT5_nano_api")
+    print(secret)
