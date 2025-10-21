@@ -156,6 +156,121 @@ class TestProcessBatch:
         print("✅ Correctly used Config values")
 
 
+class TestCategorizeAndSaveToS3:
+    """Test suite for the categorize_and_save_to_s3 function"""
+    
+    @pytest.fixture
+    def mock_s3_client(self):
+        """Create a mock S3 client for testing"""
+        mock_s3 = Mock()
+        mock_s3.get_latest_parquet_file_key = Mock()
+        mock_s3.read_parquet_to_dataframe = Mock()
+        mock_s3.write_df_to_parquet = Mock()
+        return mock_s3
+    
+    @pytest.fixture
+    def sample_dataframe(self):
+        """Create sample invoice DataFrame"""
+        return pd.DataFrame({
+            'P_IVA': ['12345678901', '98765432109'],
+            'RAGIONE_SOCIALE': ['ENEL ENERGIA', 'FORNITORE SRL'],
+            'DESCRIZIONE': ['Fornitura energia elettrica', 'Prodotti alimentari'],
+            'IMPORTO_TOTALE_DOCUMENTO': [150.00, 75.50]
+        })
+
+    @patch('lambda_function.LLMClient')
+    @patch('lambda_function.dp')
+    def test_categorize_and_save_to_s3_error_handling(self, mock_dp, mock_llm_class, mock_s3_client, sample_dataframe):
+        """Test error handling when categorize_invoices fails"""
+        
+        # Setup S3 mock to return sample data
+        mock_s3_client.get_latest_parquet_file_key.return_value = "test/path/file.parquet"
+        mock_s3_client.read_parquet_to_dataframe.return_value = sample_dataframe
+        
+        # Setup data processor mocks
+        clustered_data = sample_dataframe.copy()
+        clustered_data['cluster'] = [1, 2]
+        mock_dp.sequential_cluster.return_value = clustered_data
+        mock_dp.representatives.return_value = sample_dataframe
+        
+        # Setup LLM client mock to raise an exception during categorization
+        mock_llm_instance = Mock()
+        mock_llm_class.return_value = mock_llm_instance
+        
+        # Mock categorize_invoices to raise an exception
+        with patch('lambda_function.categorize_invoices') as mock_categorize:
+            mock_categorize.side_effect = Exception("LLM API connection failed")
+            
+            # Execute function
+            from lambda_function import categorize_and_save_to_s3
+            result = categorize_and_save_to_s3("test_company", "2025-01-01", mock_s3_client)
+        
+        # Assertions
+        assert result["statusCode"] == 500
+        assert result["body"] == "Error occurred while processing"
+        
+        # Verify that S3 operations were called but write was not (due to error)
+        mock_s3_client.get_latest_parquet_file_key.assert_called_once_with(
+            "we-are-soda-datalake", "test_company", "2025-01-01"
+        )
+        mock_s3_client.read_parquet_to_dataframe.assert_called_once()
+        mock_s3_client.write_df_to_parquet.assert_not_called()  # Should not reach write due to error
+        
+        # Verify categorize_invoices was attempted
+        mock_categorize.assert_called_once()
+        
+        print("✅ Successfully handled categorization error")
+
+    @patch('lambda_function.LLMClient')
+    @patch('lambda_function.dp')
+    def test_categorize_and_save_to_s3_success_case(self, mock_dp, mock_llm_class, mock_s3_client, sample_dataframe):
+        """Test successful categorization and save to S3"""
+        
+        # Setup S3 mock to return sample data
+        mock_s3_client.get_latest_parquet_file_key.return_value = "test/path/original_file.parquet"
+        mock_s3_client.read_parquet_to_dataframe.return_value = sample_dataframe
+        
+        # Setup data processor mocks
+        clustered_data = sample_dataframe.copy()
+        clustered_data['cluster'] = [1, 2]
+        mock_dp.sequential_cluster.return_value = clustered_data
+        mock_dp.representatives.return_value = sample_dataframe
+        
+        # Setup successful categorization
+        categorized_data = sample_dataframe.copy()
+        categorized_data['CATEGORIA'] = ['Energia Elettrica', 'Food']
+        categorized_data['cluster'] = [1, 2]
+        
+        # Setup LLM client mock
+        mock_llm_instance = Mock()
+        mock_llm_class.return_value = mock_llm_instance
+        
+        # Mock successful categorize_invoices
+        with patch('lambda_function.categorize_invoices') as mock_categorize:
+            mock_categorize.return_value = categorized_data
+            
+            # Execute function
+            from lambda_function import categorize_and_save_to_s3
+            result = categorize_and_save_to_s3("test_company", "2025-01-01", mock_s3_client)
+        
+        # Assertions for successful execution
+        assert result["statusCode"] == 200
+        assert "original_shape" in result
+        assert "reduced_shape" in result
+        assert "body" in result
+        
+        # Verify S3 write was called with correct parameters
+        mock_s3_client.write_df_to_parquet.assert_called_once()
+        write_call_args = mock_s3_client.write_df_to_parquet.call_args
+        
+        # Check that the file key follows expected pattern
+        expected_key = "test_company/silver/estratto_fatture_categorizzato/PARTITION_DATE=2025-01-01/original_file_cat.parquet"
+        assert write_call_args[0][1] == "we-are-soda-datalake"  # bucket
+        assert write_call_args[0][2] == expected_key  # key
+        
+        print("✅ Successfully tested successful categorization flow")
+
+
 def test_categorize():
     """Placeholder test for categorize_invoices function"""
     pass

@@ -59,7 +59,14 @@ def categorize_and_save_to_s3(company, partition, s3: S3_Client):
     clustered_fatture = dp.sequential_cluster(df, threshold=0.8)
     reduced_row = dp.representatives(clustered_fatture)
     llm_client = LLMClient(Config.SECRET_NAME)
-    reduced_row_categ = categorize_invoices(reduced_row, company, llm_client)
+
+    try:
+        reduced_row_categ = categorize_invoices(reduced_row, company, llm_client)
+
+    except Exception as e:
+        print(f"Error occurred while categorizing invoices: {e}")
+        return {"statusCode": 500, "body": "Error occurred while processing"}   
+
      # propagate categories to clustered_fatture
     clustered_with_cat = clustered_fatture.drop(
         columns=["CATEGORIA"], errors='ignore'
@@ -296,5 +303,7 @@ def categorize_invoices(processed_fatture, company_name, llm_client: LLMClient):
 
         # Drop temporary column
         categorized_fatture.drop(columns=['CATEGORIA_new'], inplace=True)
-
+        not_categorized = categorized_fatture[categorized_fatture["CATEGORIA"] == 'No categorizzato' ]
+        if len(not_categorized) > 0:
+            raise ValueError("Some items were not categorized after LLM processing.")
     return categorized_fatture 
