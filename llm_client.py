@@ -4,7 +4,6 @@ from botocore.exceptions import ClientError
 import json
 from typing import Dict, Any, Optional, List
 from openai import OpenAI
-import tiktoken
 from config import Config
 def get_secret(secret_name: str):
 
@@ -75,101 +74,7 @@ class LLMClient:
 
         return user_prompt
 
-    def count_tokens(self, text: str, model: str = "gpt-4") -> int:
-        """
-        Count tokens in a text string.
-        
-        Args:
-            text: Text to count tokens for
-            model: Model name for tokenizer (default: gpt-4)
-            
-        Returns:
-            Number of tokens
-        """
-        if tiktoken:
-            # Use tiktoken for accurate token counting
-            try:
-                encoding = tiktoken.encoding_for_model(model)
-                return len(encoding.encode(text))
-            except KeyError:
-                # Fallback to cl100k_base encoding if model not found
-                encoding = tiktoken.get_encoding("cl100k_base")
-                return len(encoding.encode(text))
-        else:
-            # Rough approximation: ~4 characters per token
-            return len(text) // 4
-    
-    def estimate_request_tokens(self, user_prompt: str, system_prompt: str, model: str = "gpt-4") -> dict:
-        """
-        Estimate total tokens for a request before sending.
-        
-        Args:
-            user_prompt: User message content
-            system_prompt: System message content  
-            model: Model name
-            
-        Returns:
-            Dictionary with token counts and estimates
-        """
-        system_tokens = self.count_tokens(system_prompt, model)
-        user_tokens = self.count_tokens(user_prompt, model)
-        
-        # Add overhead for message structure (role, content keys, etc.)
-        message_overhead = 10  # Approximate overhead per message
-        total_input_tokens = system_tokens + user_tokens + message_overhead
-        
-        # Estimate output tokens based on batch size (rough estimate)
-        batch_lines = user_prompt.count('\n') + 1
-        estimated_output_tokens = batch_lines * 15  # ~15 tokens per categorization response
-        
-        return {
-            "system_tokens": system_tokens,
-            "user_tokens": user_tokens, 
-            "total_input_tokens": total_input_tokens,
-            "estimated_output_tokens": estimated_output_tokens,
-            "estimated_total_tokens": total_input_tokens + estimated_output_tokens
-        }
-    
-    def check_rate_limit(self, user_prompt: str, system_prompt: str, 
-                        tokens_per_minute: int = 10000, model: str = "gpt-4") -> bool:
-        """
-        Check if request would exceed rate limit.
-        
-        Args:
-            user_prompt: User message
-            system_prompt: System message
-            tokens_per_minute: Rate limit (default 10k TPM)
-            model: Model name
-            
-        Returns:
-            True if request is within limits, False otherwise
-        """
-        estimate = self.estimate_request_tokens(user_prompt, system_prompt, model)
-        return estimate["estimated_total_tokens"] <= tokens_per_minute
-
-    def get_response(self, user_prompt: str, 
-                    system_prompt: str):
-        """
-        Get response from the LLM.
-        """
-        response = self.client.chat.completions.create(
-                model=Config.OPENAI_MODEL,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                response_format={ "type": "json_object" }   # force valid JSON output
-                
-            )
-        try: 
-            validated_response = self.validate_response(response)
-
-        except ValueError as e:
-            print(f"❌ Response validation error: {e}")
-            print(f"Response content: {response.choices[0].message.content}")
-            raise e    
-        return validated_response
-        
+  
 
 
     def validate_response(self, response) -> List[Dict[str, Any]]:
@@ -227,8 +132,3 @@ class LLMClient:
             raise ValueError("No valid items found in response")
         return validated_items
         
-
-
-if __name__ == "__main__":
-    secret = get_secret("deepseek_api")
-    print(secret)
