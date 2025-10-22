@@ -74,7 +74,30 @@ class LLMClient:
 
         return user_prompt
 
-  
+
+    def get_response(self, user_prompt: str, 
+                    system_prompt: str):
+        """
+        Get response from the LLM.
+        """
+        response = self.client.chat.completions.create(
+                model=Config.OPENAI_MODEL,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                response_format={ "type": "json_object" }   # force valid JSON output
+                
+            )
+        try: 
+            validated_response = self.validate_response(response)
+
+        except ValueError as e:
+            print(f"❌ Response validation error: {e}")
+            print(f"Response content: {response.choices[0].message.content}")
+            raise e    
+        return validated_response
+        
 
 
     def validate_response(self, response) -> List[Dict[str, Any]]:
