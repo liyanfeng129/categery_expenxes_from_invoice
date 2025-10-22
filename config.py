@@ -6,14 +6,16 @@ class Config:
     
     # AWS Configuration
     AWS_REGION = "eu-south-1"
-    SECRET_NAME = "GPT5_nano_api"
+    #SECRET_NAME = "GPT5_nano_api"
+    SECRET_NAME = "deepseek_api"
     
     # S3 Configuration
     S3_BUCKET_NAME = "we-are-soda-datalake"  # Update with your actual bucket name
     S3_PREFIX = "invoices/"
     
     # OpenAI Configuration
-    OPENAI_MODEL = "gpt-5-nano"
+    #OPENAI_MODEL = "gpt-5-nano"
+    OPENAI_MODEL = "deepseek-chat"
     SYSTEM_PROMPT = """
        Sei un assistente specializzato nella classificazione di spese aziendali.
 Ricevi in input un batch di righe, ognuna con:
@@ -27,11 +29,6 @@ utilizzando sia ragione sociale sia descrizione per dedurre la categoria.
 CATEGORIE DISPONIBILI:
 
 Food – Prodotti alimentari per cucina e ristorazione, freschi o confezionati (esclusi bevande)
-Vino – Acquisto di vini di qualsiasi tipo
-Birra – Acquisto di birra e prodotti birrari
-Alcolici – Amari, grappa, superalcolici, liquori e distillati
-Softdrinks – Bibite analcoliche, succhi, bevande gassate
-Acqua – Acqua minerale e acqua potabile
 Beverage – Altre bevande non riconducibili alle categorie specifiche sopra
 Caffè – Fornitura di caffè e prodotti correlati
 Materiali di Cucina – Materiali e utensili usati in cucina
@@ -102,7 +99,7 @@ Esempio:
         """
     
     # Processing Configuration
-    BATCH_SIZE = 100
+    BATCH_SIZE = 50
     LLM_Tries = 3
 
     

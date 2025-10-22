@@ -1,3 +1,4 @@
+import os
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 import pandas as pd
@@ -5,6 +6,7 @@ import json
 from lambda_function import categorize_invoices, process_batch, process_batches_in_parallel, identify_trigger, handle_jump
 from llm_client import LLMClient
 from config import Config
+from data_processor import DataProcessor as dp
 
 
 class TestProcessBatch:
@@ -270,9 +272,58 @@ class TestCategorizeAndSaveToS3:
         
         print("✅ Successfully tested successful categorization flow")
 
+def read_parquet():
+    test_data_path = os.path.join(os.path.dirname(__file__), 'mocks', 'data')
+    parquet_files = [f for f in os.listdir(test_data_path) if f.endswith('.parquet')]
+     # Read all parquet files and concatenate them
+    dataframes = []
+    for file in parquet_files:
+        df = pd.read_parquet(os.path.join(test_data_path, file))
+        dataframes.append(df)
+        
+    # Combine all dataframes
+    combined_df = pd.concat(dataframes, ignore_index=True)        
+    return combined_df
+    
+    
 
 def test_categorize():
     """Placeholder test for categorize_invoices function"""
+    # Read test data from mocks/data directory
+    test_data_path = os.path.join(os.path.dirname(__file__), 'mocks', 'data')
+    df = read_parquet()
+
+    # Basic test that df was loaded successfully
+    assert not df.empty, "Test dataframe should not be empty"
+    assert 'RAGIONE_SOCIALE' in df.columns, "Expected column RAGIONE_SOCIALE not found"
+    print(f"✅ Successfully loaded test data with {len(df)} rows")
+
+     # Process invoices 
+    clustered_fatture = dp.sequential_cluster(df, threshold=0.8)
+    reduced_row = dp.representatives(clustered_fatture)
+    llm_client = LLMClient(Config.SECRET_NAME)
+    company = "test_company"
+
+    try:
+        reduced_row_categ = categorize_invoices(reduced_row, company, llm_client)
+
+    except Exception as e:
+        print(f"Error occurred while categorizing invoices: {e}")
+        return {"statusCode": 500, "body": "Error occurred while processing"}   
+
+     # propagate categories to clustered_fatture
+    clustered_with_cat = clustered_fatture.drop(
+        columns=["CATEGORIA"], errors='ignore'
+        ).merge(
+        reduced_row_categ[["P_IVA", "cluster", "CATEGORIA"]],
+        on=["P_IVA", "cluster"],
+        how="left"
+                )
+    
+    clustered_with_cat = clustered_with_cat.drop(columns=["cluster"], errors='ignore')
+    print("final df shape:", clustered_with_cat.shape)
+    clustered_with_cat.to_csv("categorized_output.csv", index=False)
+
     pass
 
 def test_jump_trigger_identification():
