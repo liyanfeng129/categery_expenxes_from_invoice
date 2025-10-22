@@ -29,20 +29,20 @@ utilizzando sia ragione sociale sia descrizione per dedurre la categoria.
 CATEGORIE DISPONIBILI:
 
 Food – Prodotti alimentari per cucina e ristorazione, freschi o confezionati (esclusi bevande)
-Beverage – Altre bevande non riconducibili alle categorie specifiche sopra
+Beverage – Bevande alcoliche e analcoliche, incluse bibite, succhi, acqua, vino, birra e liquori
 Caffè – Fornitura di caffè e prodotti correlati
-Materiali di Cucina – Materiali e utensili usati in cucina
-Packaging – Materiali per imballaggio e confezionamento
-Materiali di consumo – Materiale di consumo vario
-Attrezzature Cucina – Utensili e attrezzature per cucina
-Attrezzature Sala – Arredi e strumenti per la sala clienti (tavoli, sedie, posateria)
+Materiali di Cucina – Materiali di consumo vario per uso in cucina 
+Packaging – Materiali per l'imballaggio, il confezionamento e la protezione di alimenti. (Scatole per asporto, pellicole, sacchetti, vaschette, etichette, nastri adesivi,...)
+Materiali di Consumo – prodotti di consumo, non destinati al packaging. Tipicamente per la pulizia, igiene e ufficio (Detersivi, carta igienica, sapone, guanti monouso, stuzzicadenti,...)
+Attrezzature Cucina – Strumenti, utensili e apparecchiature durevoli e riutilizzabili, utilizzati esclusivamente per la preparazione e la cottura dei cibi.
+Attrezzature Sala – Arredi e strumenti durevoli e riutilizzabili, utilizzati esclusivamente nell'area di servizio al cliente. (tavoli, sedie, posateria,...)
 Abiti lavoro – Divise, abbigliamento professionale e DPI
-Altre Forniture – Materiale di consumo vario (cancelleria, detergenti, accessori)
-Lavanderia – Servizi lavanderia per tovaglie, abiti e tessili
+Altre Forniture – Materiale o accessori vari non classificabili in altre categorie
+Lavanderia – Servizi lavanderia per tovaglie, abiti e tessili (da non confondere con l'acquisto di tovaglie, abiti e tessili)
 Energia Elettrica – Fornitura e consumo di energia elettrica
 Gas – Fornitura e consumo di gas
-Carburante – Benzina, diesel o altri combustibili per veicoli e macchinari
-Automezzi – Acquisto, leasing o manutenzione di veicoli aziendali
+Carburante – Ricarica l'auto, inclusi carburanti liquidi, gas, ricarica elettrica e sistemi di propulsione alternativi
+Automezzi – Tutte le spese relative ai veicoli aziendali, inclusi acquisto, leasing, manutenzione (additivi, protezioni, ricambi), accessori e cura, pedaggi, no carburante.
 Spese Amministrative – Costi di gestione ufficio, segreteria e pratiche burocratiche. Include licenze obbligatorie come SIAE e diritti connessi
 Commercialista – Servizi di consulenza e gestione contabile/fiscale
 Marketing – Pubblicità, promozioni, campagne online e offline
@@ -55,9 +55,9 @@ Consulente Lavoro – Servizi per gestione buste paga e pratiche del personale
 Consulenza – Consulenze professionali in vari ambiti (strategia, legale, tecnico)
 Professionisti – Prestazioni di lavoratori autonomi specializzati (architetto, ingegnere, sicurezza sul lavoro)
 Assicurazioni – Polizze assicurative di vario tipo
-Commissioni – Commissioni per servizi come ticket restaurant, delivery, intermediari
+Commissioni – Commissioni per JUSTEAT, UberEats, Deliveroo e simili
 Costo Personale Somministrato – Staff assunto da agenzia interinale o somministrato
-Noleggi – Noleggio attrezzature, veicoli o locali per uso temporaneo
+Noleggi – Noleggio attrezzature, o locali per uso temporaneo
 Rappresentanza – Cene aziendali, costi legati a viaggi, spese per eventi, meeting e relazioni con clienti
 Service – Servizi tecnici per audio, luci, casse da musica, console, illuminazione, assistenza tecnica audio
 Manutenzione Generica – Riparazioni e manutenzioni non specialistiche, servizi di pulizia/disinfestazione, controlli impianti (interventi non dovuti a guasti)
