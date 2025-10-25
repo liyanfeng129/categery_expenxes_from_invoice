@@ -9,6 +9,7 @@ import numpy as np
 import threading
 import pandas as pd
 from config import Config
+import traceback
 def lambda_handler(event, context):
     """
     Main handler that routes events from different triggers
@@ -46,11 +47,11 @@ def handle_jump(event, context):
     
     # Continue with processing using extracted values
     s3 = S3_Client(boto3.client('s3'))
-    return [categorize_and_save_to_s3(company, partition_date, s3)]
+    return [categorize_and_return_to_jump(company, partition_date, s3)]
 
-def categorize_and_save_to_s3(company, partition, s3: S3_Client):
+def categorize_and_return_to_jump(company, partition, s3: S3_Client):
     """
-    Categorize invoices and save results to S3
+    Categorize invoices and return results for Jump integration.
     """
     bucket = "we-are-soda-datalake"
     latest_file = s3.get_latest_parquet_file_key(bucket, company, partition)
@@ -64,8 +65,12 @@ def categorize_and_save_to_s3(company, partition, s3: S3_Client):
         reduced_row_categ = categorize_invoices(reduced_row, company, llm_client)
 
     except Exception as e:
+        
         print(f"Error occurred while categorizing invoices: {e}")
-        return {"statusCode": 500, "body": "Error occurred while processing"}   
+        print(f"Error type: {type(e).__name__}")
+        print("Full traceback:")
+        traceback.print_exc()
+        return {"statusCode": 500, "body": "Error occurred while processing"}
 
      # propagate categories to clustered_fatture
     clustered_with_cat = clustered_fatture.drop(
@@ -79,6 +84,7 @@ def categorize_and_save_to_s3(company, partition, s3: S3_Client):
     clustered_with_cat = clustered_with_cat.drop(columns=["cluster"], errors='ignore')
     print("final df shape:", clustered_with_cat.shape)
     
+    """
     # Extract just the filename from the full S3 key path
     import os
     original_filename = os.path.basename(latest_file)
@@ -91,11 +97,10 @@ def categorize_and_save_to_s3(company, partition, s3: S3_Client):
     # Create new file key with categorized data structure
     new_file_key = f"{company}/silver/estratto_fatture_categorizzato/PARTITION_DATE={partition}/{filename_with_cat}"
     
-    s3.write_df_to_parquet(clustered_with_cat, bucket, new_file_key)    
+    s3.write_df_to_parquet(clustered_with_cat, bucket, new_file_key) 
+    """   
     
-    return {"statusCode": 200, "original_shape": json.dumps(df.shape), 
-            "reduced_shape": json.dumps(reduced_row.shape),
-            "body": clustered_with_cat.head(5).to_json(orient='records')}
+    return clustered_with_cat.to_dict(orient='records')
     
 
 def handle_api_gateway(event, context):
@@ -184,7 +189,7 @@ def process_batches_in_parallel(batches, process_batch, llm_client: LLMClient) -
 
     assert results, "empty results after processing"
     all_processed = pd.concat([results[i] for i in sorted(results.keys())], ignore_index=True)
-    print("All processed:", all_processed.sample(100))
+    print("All processed:", all_processed.sample(min(100, len(all_processed))))
     return all_processed
 
 def process_batch(batch, llm_client: LLMClient) -> pd.DataFrame:
