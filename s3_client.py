@@ -45,7 +45,7 @@ class S3_Client:
         """Read a Parquet file from S3 directly into a pandas DataFrame."""
         try:
             path = f"s3://{bucket}/{key}"
-            df = wr.s3.read_parquet(path)
+            df = wr.s3.read_parquet(path, map_types = False)
             print(f"✅ Loaded s3://{bucket}/{key} into DataFrame")
             return df
         except (NoCredentialsError, ClientError) as e:

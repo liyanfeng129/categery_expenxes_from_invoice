@@ -107,14 +107,14 @@ def handle_api_gateway(event, context):
     """
     Handle API Gateway trigger
     """
-    s3 = S3_Client(boto3.client('s3'))
-    company = event['queryStringParameters'].get('company', 'default_company')
-    partition = event['queryStringParameters'].get('partition', 'default_partition')
-    if not company or not partition:
-        return {"error": "Missing required parameters"}
+    print("Handling API Gateway event")
+    print(event)
+    print(context)
+    return {
+        'statusCode': 200,
+        'body': json.dumps('Hello from API Gateway!')
+    }
     
-    # Call the categorize_and_save_to_s3 function
-    return categorize_and_save_to_s3(company, partition, s3)
 
 
 def handle_s3(event, context):
