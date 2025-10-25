@@ -326,6 +326,54 @@ def test_categorize():
 
     pass
 
+def test_categorize_100():
+    """Placeholder test for categorize_invoices function"""
+    # Read test data from mocks/data directory
+    test_data_path = os.path.join(os.path.dirname(__file__), 'mocks', 'data')
+    df = read_parquet()
+
+    # Basic test that df was loaded successfully
+    assert not df.empty, "Test dataframe should not be empty"
+    assert 'RAGIONE_SOCIALE' in df.columns, "Expected column RAGIONE_SOCIALE not found"
+    print(f"✅ Successfully loaded test data with {len(df)} rows")
+
+    df = df.sample(100)
+    print(f"Sampled df shape: {df.shape}")
+
+     # Process invoices 
+    clustered_fatture = dp.sequential_cluster(df, threshold=0.8)
+    reduced_row = dp.representatives(clustered_fatture)
+    llm_client = LLMClient(Config.SECRET_NAME)
+    company = "test_company"
+
+    try:
+        
+        reduced_row_categ = categorize_invoices(reduced_row, company, llm_client)
+
+    except Exception as e:
+        import traceback
+        print(f"Error occurred while categorizing invoices: {e}")
+        print(f"Error type: {type(e).__name__}")
+        print("Full traceback:")
+        traceback.print_exc()
+        return {"statusCode": 500, "body": "Error occurred while processing"}   
+
+     # propagate categories to clustered_fatture
+    clustered_with_cat = clustered_fatture.drop(
+        columns=["CATEGORIA"], errors='ignore'
+        ).merge(
+        reduced_row_categ[["P_IVA", "cluster", "CATEGORIA"]],
+        on=["P_IVA", "cluster"],
+        how="left"
+                )
+    
+    clustered_with_cat = clustered_with_cat.drop(columns=["cluster"], errors='ignore')
+    print("final df shape:", clustered_with_cat.shape)
+    result_data = clustered_with_cat.to_dict(orient='records')
+    print("✅ Successfully processed and saved categorized data")
+    print(result_data)
+    pass
+
 def test_jump_trigger_identification():
     """
     Test that identify_trigger correctly identifies a 'jump' event
